@@ -225,7 +225,8 @@ def train(hyp, opt, device, callbacks):  # hyp is path/to/hyp.yaml or hyp dictio
             model.half().float()  # pre-reduce anchor precision
 
             if plots:
-                plot_labels(labels, names, save_dir)
+                pass
+                #plot_labels(labels, names, save_dir)
         # callbacks.run('on_pretrain_routine_end', labels, names)
 
     # DDP mode

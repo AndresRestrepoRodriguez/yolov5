@@ -35,9 +35,12 @@ from utils.general import (DATASETS_DIR, LOGGER, NUM_THREADS, TQDM_BAR_FORMAT, c
                            xywh2xyxy, xywhn2xyxy, xyxy2xywhn)
 from utils.torch_utils import torch_distributed_zero_first
 
+
+import pydicom
+
 # Parameters
 HELP_URL = 'See https://docs.ultralytics.com/yolov5/tutorials/train_custom_data'
-IMG_FORMATS = 'bmp', 'dng', 'jpeg', 'jpg', 'mpo', 'png', 'tif', 'tiff', 'webp', 'pfm'  # include image suffixes
+IMG_FORMATS = 'bmp', 'dng', 'jpeg', 'jpg', 'mpo', 'png', 'tif', 'tiff', 'webp', 'pfm', 'dcm'  # include image suffixes
 VID_FORMATS = 'asf', 'avi', 'gif', 'm4v', 'mkv', 'mov', 'mp4', 'mpeg', 'mpg', 'ts', 'wmv'  # include video suffixes
 LOCAL_RANK = int(os.getenv('LOCAL_RANK', -1))  # https://pytorch.org/docs/stable/elastic/run.html
 RANK = int(os.getenv('RANK', -1))
@@ -355,7 +358,7 @@ class LoadStreams:
             # Start thread to read frames from video stream
             st = f'{i + 1}/{n}: {s}... '
             if urlparse(s).hostname in ('www.youtube.com', 'youtube.com', 'youtu.be'):  # if source is YouTube video
-                # YouTube format i.e. 'https://www.youtube.com/watch?v=Zgi9g1ksQHc' or 'https://youtu.be/LNwODJXcvt4'
+                # YouTube format i.e. 'https://www.youtube.com/watch?v=Zgi9g1ksQHc' or 'https://youtu.be/Zgi9g1ksQHc'
                 check_requirements(('pafy', 'youtube_dl==2020.12.2'))
                 import pafy
                 s = pafy.new(s).getbest(preftype='mp4').url  # YouTube URL
@@ -466,6 +469,7 @@ class LoadImagesAndLabels(Dataset):
             for p in path if isinstance(path, list) else [path]:
                 p = Path(p)  # os-agnostic
                 if p.is_dir():  # dir
+                    #LOGGER.info(f"Entre dir")
                     f += glob.glob(str(p / '**' / '*.*'), recursive=True)
                     # f = list(p.rglob('*.*'))  # pathlib
                 elif p.is_file():  # file
@@ -484,17 +488,24 @@ class LoadImagesAndLabels(Dataset):
 
         # Check cache
         self.label_files = img2label_paths(self.im_files)  # labels
+        #LOGGER.info(f"self.label_files: {self.label_files}")
         cache_path = (p if p.is_file() else Path(self.label_files[0]).parent).with_suffix('.cache')
+        #LOGGER.info(f"cache_path: {cache_path}")
         try:
             cache, exists = np.load(cache_path, allow_pickle=True).item(), True  # load dict
             assert cache['version'] == self.cache_version  # matches current version
             assert cache['hash'] == get_hash(self.label_files + self.im_files)  # identical hash
         except Exception:
+            #LOGGER.info(f"Entre exception cache *******")
             cache, exists = self.cache_labels(cache_path, prefix), False  # run cache ops
 
+        #LOGGER.info(f"cache: {cache}")
+        #LOGGER.info(f"exists: {exists}")
         # Display cache
         nf, nm, ne, nc, n = cache.pop('results')  # found, missing, empty, corrupt, total
+        #LOGGER.info(f"nf, nm, ne, nc, n {nf}, {nm}, {ne}, {nc}, {n}")
         if exists and LOCAL_RANK in {-1, 0}:
+            #LOGGER.info("BEFORE SCANNING *******")
             d = f'Scanning {cache_path}... {nf} images, {nm + ne} backgrounds, {nc} corrupt'
             tqdm(None, desc=prefix + d, total=n, initial=n, bar_format=TQDM_BAR_FORMAT)  # display cache results
             if cache['msgs']:
@@ -592,7 +603,9 @@ class LoadImagesAndLabels(Dataset):
         b, gb = 0, 1 << 30  # bytes of cached images, bytes per gigabytes
         n = min(self.n, 30)  # extrapolate from 30 random images
         for _ in range(n):
-            im = cv2.imread(random.choice(self.im_files))  # sample image
+            #im = cv2.imread(random.choice(self.im_files))  # sample image
+            ds = pydicom.dcmread(random.choice(self.im_files), force=True)
+            im = ds.pixel_array.astype(np.float32) / 255.0
             ratio = self.img_size / max(im.shape[0], im.shape[1])  # max(h, w)  # ratio
             b += im.nbytes * ratio ** 2
         mem_required = b * self.n / n  # GB required to cache dataset into RAM
@@ -605,6 +618,7 @@ class LoadImagesAndLabels(Dataset):
         return cache
 
     def cache_labels(self, path=Path('./labels.cache'), prefix=''):
+        #LOGGER.info("DESDE CACHE LABELS ***********")
         # Cache dataset labels, check images and read shapes
         x = {}  # dict
         nm, nf, ne, nc, msgs = 0, 0, 0, 0, []  # number missing, found, empty, corrupt, messages
@@ -656,29 +670,33 @@ class LoadImagesAndLabels(Dataset):
 
         hyp = self.hyp
         mosaic = self.mosaic and random.random() < hyp['mosaic']
-        if mosaic:
+        #if mosaic:
             # Load mosaic
-            img, labels = self.load_mosaic(index)
-            shapes = None
+        #    img, labels = self.load_mosaic(index)
+        #    shapes = None
 
             # MixUp augmentation
-            if random.random() < hyp['mixup']:
-                img, labels = mixup(img, labels, *self.load_mosaic(random.randint(0, self.n - 1)))
+        #    if random.random() < hyp['mixup']:
+        #        img, labels = mixup(img, labels, *self.load_mosaic(random.randint(0, self.n - 1)))
 
-        else:
+        if True:
             # Load image
             img, (h0, w0), (h, w) = self.load_image(index)
 
             # Letterbox
             shape = self.batch_shapes[self.batch[index]] if self.rect else self.img_size  # final letterboxed shape
+            #LOGGER.info(f"shape: {shape}")
             img, ratio, pad = letterbox(img, shape, auto=False, scaleup=self.augment)
             shapes = (h0, w0), ((h / h0, w / w0), pad)  # for COCO mAP rescaling
-
+            #LOGGER.info(f"shapes: {shapes}")
             labels = self.labels[index].copy()
+            #LOGGER.info(f"labels: {labels}")
             if labels.size:  # normalized xywh to pixel xyxy format
+                #LOGGER.info(f"labels size IF")
                 labels[:, 1:] = xywhn2xyxy(labels[:, 1:], ratio[0] * w, ratio[1] * h, padw=pad[0], padh=pad[1])
-
+                #LOGGER.info(f"labels: {labels}")
             if self.augment:
+                #LOGGER.info(f"self.augment in: {self.augment}")
                 img, labels = random_perspective(img,
                                                  labels,
                                                  degrees=hyp['degrees'],
@@ -688,10 +706,14 @@ class LoadImagesAndLabels(Dataset):
                                                  perspective=hyp['perspective'])
 
         nl = len(labels)  # number of labels
+        #LOGGER.info(f"nl : {nl}")
         if nl:
+            #LOGGER.info("IF NL")
             labels[:, 1:5] = xyxy2xywhn(labels[:, 1:5], w=img.shape[1], h=img.shape[0], clip=True, eps=1E-3)
+            #LOGGER.info(f"Labels nl: {labels}") 
 
         if self.augment:
+            #LOGGER.info(f"self.augment in: {self.augment}")
             # Albumentations
             img, labels = self.albumentations(img, labels)
             nl = len(labels)  # update after albumentations
@@ -716,27 +738,49 @@ class LoadImagesAndLabels(Dataset):
             # nl = len(labels)  # update after cutout
 
         labels_out = torch.zeros((nl, 6))
+        #LOGGER.info(f"labels_out: {labels_out}")
         if nl:
+            #LOGGER.info(f"IF NL in")
             labels_out[:, 1:] = torch.from_numpy(labels)
+            #LOGGER.info(f"labels_out: {labels_out}")
 
         # Convert
         img = img.transpose((2, 0, 1))[::-1]  # HWC to CHW, BGR to RGB
         img = np.ascontiguousarray(img)
+        #LOGGER.info(f"img asconti: {img.shape}")
+
+        #LOGGER.info(f"return : {torch.from_numpy(img)}, {labels_out}, {self.im_files[index]}, {shapes}")
 
         return torch.from_numpy(img), labels_out, self.im_files[index], shapes
 
     def load_image(self, i):
         # Loads 1 image from dataset index 'i', returns (im, original hw, resized hw)
         im, f, fn = self.ims[i], self.im_files[i], self.npy_files[i],
+        #LOGGER.info("LOAD IMAGE FUNCTION ------------")
+        #LOGGER.info(f"im: {im}")
+        #LOGGER.info(f"f: {f}")
+        #LOGGER.info(f"fn: {fn}")
+        
         if im is None:  # not cached in RAM
+            #LOGGER.info("IM IS NONE")
             if fn.exists():  # load npy
+                #LOGGER.info("from im is NONE not cached ram")
                 im = np.load(fn)
             else:  # read image
-                im = cv2.imread(f)  # BGR
+                #im = cv2.imread(f)  # BGR
+                #LOGGER.info("FROM ELSE IM IS NONE")
+                ds = pydicom.dcmread(f, force=True)
+                im = ds.pixel_array.astype(np.uint8) #/ 255.0
+                #im = im.astype(np.uint8)
+                im = np.stack([im]*3, -1)
+                #LOGGER.info(f"shape im: {im.shape}")
                 assert im is not None, f'Image Not Found {f}'
             h0, w0 = im.shape[:2]  # orig hw
+            #LOGGER.info(f"h0 : {h0} - w0: {w0} ------")
             r = self.img_size / max(h0, w0)  # ratio
+            #LOGGER.info(f"Ratio: {r}")
             if r != 1:  # if sizes are not equal
+                #LOGGER.info("RATIO DIFF 1")
                 interp = cv2.INTER_LINEAR if (self.augment or r > 1) else cv2.INTER_AREA
                 im = cv2.resize(im, (math.ceil(w0 * r), math.ceil(h0 * r)), interpolation=interp)
             return im, (h0, w0), im.shape[:2]  # im, hw_original, hw_resized
@@ -989,25 +1033,34 @@ def autosplit(path=DATASETS_DIR / 'coco128/images', weights=(0.9, 0.1, 0.0), ann
 
 
 def verify_image_label(args):
+    #LOGGER.info("Verify function *********")
     # Verify one image-label pair
     im_file, lb_file, prefix = args
     nm, nf, ne, nc, msg, segments = 0, 0, 0, 0, '', []  # number (missing, found, empty, corrupt), message, segments
     try:
         # verify images
-        im = Image.open(im_file)
+        #im = Image.open(im_file)
+        #LOGGER.info("VERIFY 0*****************")
+        ds = pydicom.dcmread(im_file, force=True)
+        im = ds.pixel_array.astype(np.float32) / 255.0
+        im = Image.fromarray(im)
         im.verify()  # PIL verify
+        #LOGGER.info("VERIFY 1 *****************")
         shape = exif_size(im)  # image size
         assert (shape[0] > 9) & (shape[1] > 9), f'image size {shape} <10 pixels'
-        assert im.format.lower() in IMG_FORMATS, f'invalid image format {im.format}'
-        if im.format.lower() in ('jpg', 'jpeg'):
-            with open(im_file, 'rb') as f:
-                f.seek(-2, 2)
-                if f.read() != b'\xff\xd9':  # corrupt JPEG
-                    ImageOps.exif_transpose(Image.open(im_file)).save(im_file, 'JPEG', subsampling=0, quality=100)
-                    msg = f'{prefix}WARNING ⚠️ {im_file}: corrupt JPEG restored and saved'
+        #assert im.format.lower() in IMG_FORMATS, f'invalid image format {im.format}'
+        #LOGGER.info("VERIFY 2 *****************")
+        #if im.format.lower() in ('jpg', 'jpeg'):
+        #    with open(im_file, 'rb') as f:
+        #        f.seek(-2, 2)
+        #        if f.read() != b'\xff\xd9':  # corrupt JPEG
+        #            ImageOps.exif_transpose(Image.open(im_file)).save(im_file, 'JPEG', subsampling=0, quality=100)
+        #           msg = f'{prefix}WARNING ⚠️ {im_file}: corrupt JPEG restored and saved'
 
         # verify labels
+        #LOGGER.info("VERIFY 3*****************")
         if os.path.isfile(lb_file):
+            #LOGGER.info("VERIFY 4 EMTRE*****************")
             nf = 1  # label found
             with open(lb_file) as f:
                 lb = [x.split() for x in f.read().strip().splitlines() if len(x)]
@@ -1031,6 +1084,7 @@ def verify_image_label(args):
                 ne = 1  # label empty
                 lb = np.zeros((0, 5), dtype=np.float32)
         else:
+            #LOGGER.info("VERIFY 4 EMTRE else *****************")
             nm = 1  # label missing
             lb = np.zeros((0, 5), dtype=np.float32)
         return im_file, lb, shape, segments, nm, nf, ne, nc, msg
