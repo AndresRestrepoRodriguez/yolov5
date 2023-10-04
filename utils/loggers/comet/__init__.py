@@ -257,10 +257,10 @@ class CometLogger:
 
         image_id = path.split('/')[-1].split('.')[0]
         image_name = f'{image_id}_curr_epoch_{self.experiment.curr_epoch}'
-        if image_name not in self.logged_image_names:
-            native_scale_image = PIL.Image.open(path)
-            self.log_image(native_scale_image, name=image_name)
-            self.logged_image_names.append(image_name)
+        #if image_name not in self.logged_image_names:
+        #    native_scale_image = PIL.Image.open(path)
+        #    self.log_image(native_scale_image, name=image_name)
+        #    self.logged_image_names.append(image_name)
 
         metadata = []
         for cls, *xyxy in filtered_labels.tolist():
