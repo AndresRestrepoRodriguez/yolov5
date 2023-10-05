@@ -196,6 +196,8 @@ def run(
     callbacks.run('on_val_start')
     pbar = tqdm(dataloader, desc=s, bar_format=TQDM_BAR_FORMAT)  # progress bar
     for batch_i, (im, targets, paths, shapes) in enumerate(pbar):
+        LOGGER.info(f"paths: {paths}")
+        LOGGER.info(f"target original: {targets}")
         callbacks.run('on_val_batch_start')
         with dt[0]:
             if cuda:
@@ -204,10 +206,13 @@ def run(
             im = im.half() if half else im.float()  # uint8 to fp16/32
             im /= 255  # 0 - 255 to 0.0 - 1.0
             nb, _, height, width = im.shape  # batch size, channels, height, width
+            LOGGER.info(f"nb: {nb}")
 
         # Inference
         with dt[1]:
             preds, train_out = model(im) if compute_loss else (model(im, augment=augment), None)
+            LOGGER.info(f"preds: {preds}")
+            LOGGER.info(f"train_out: {train_out}")
 
         # Loss
         if compute_loss:
@@ -215,7 +220,9 @@ def run(
 
         # NMS
         targets[:, 2:] *= torch.tensor((width, height, width, height), device=device)  # to pixels
+        LOGGER.info(f"target pixels: {targets}")
         lb = [targets[targets[:, 0] == i, 1:] for i in range(nb)] if save_hybrid else []  # for autolabelling
+        LOGGER.info(f"lb: {lb}")
         with dt[2]:
             preds = non_max_suppression(preds,
                                         conf_thres,
@@ -224,17 +231,26 @@ def run(
                                         multi_label=True,
                                         agnostic=single_cls,
                                         max_det=max_det)
+            LOGGER.info(f"preds nms: {preds}")
 
         # Metrics
         for si, pred in enumerate(preds):
+            LOGGER.info(f"si: {si}")
+            LOGGER.info(f"pred: {pred}")
             labels = targets[targets[:, 0] == si, 1:]
+            LOGGER.info(f"labels in Metrics: {labels}")
             nl, npr = labels.shape[0], pred.shape[0]  # number of labels, predictions
+            LOGGER.info(f"nl: {nl} - npr : {npr}")
             path, shape = Path(paths[si]), shapes[si][0]
+            LOGGER.info(f"path: {path} - shape: {shape}")
             correct = torch.zeros(npr, niou, dtype=torch.bool, device=device)  # init
+            LOGGER.info(f"correct: {correct}")
             seen += 1
 
             if npr == 0:
+                LOGGER.info("NPR is Zero")
                 if nl:
+                    LOGGER.info("nl is no empty *****")
                     stats.append((correct, *torch.zeros((2, 0), device=device), labels[:, 0]))
                     if plots:
                         confusion_matrix.process_batch(detections=None, labels=labels[:, 0])
@@ -242,19 +258,33 @@ def run(
 
             # Predictions
             if single_cls:
+                LOGGER.info("single_class True")
                 pred[:, 5] = 0
+                LOGGER.info(f"pred changed single cls: {pred}")
             predn = pred.clone()
+
             scale_boxes(im[si].shape[1:], predn[:, :4], shape, shapes[si][1])  # native-space pred
 
             # Evaluate
             if nl:
+                LOGGER.info("inside nl")
+                LOGGER.info(f"labels[:, 1:5] : {labels[:, 1:5]}")
                 tbox = xywh2xyxy(labels[:, 1:5])  # target boxes
                 scale_boxes(im[si].shape[1:], tbox, shape, shapes[si][1])  # native-space labels
+                LOGGER.info(f"labels[:, 0:1] : {labels[:, 0:1]}")
+                LOGGER.info(f"TBOX: {tbox}")
                 labelsn = torch.cat((labels[:, 0:1], tbox), 1)  # native-space labels
+                LOGGER.info(f"predn: {predn}")
+                LOGGER.info(f"labelsn: {labelsn}")
+                LOGGER.info(f"iouv: {iouv}")
                 correct = process_batch(predn, labelsn, iouv)
+                LOGGER.info(f"correct: {correct}")
                 if plots:
                     confusion_matrix.process_batch(predn, labelsn)
             stats.append((correct, pred[:, 4], pred[:, 5], labels[:, 0]))  # (correct, conf, pcls, tcls)
+            LOGGER.info(f"pred[:, 4] : {pred[:, 4]}")
+            LOGGER.info(f"pred[:, 5]: {pred[:, 5]}")
+            LOGGER.info(f"labels[:, 0]: {labels[:, 0]}")
 
             # Save/log
             if save_txt:
@@ -272,6 +302,7 @@ def run(
 
     # Compute metrics
     stats = [torch.cat(x, 0).cpu().numpy() for x in zip(*stats)]  # to numpy
+    LOGGER.info(f"len(stats): {len(stats)}")
     if len(stats) and stats[0].any():
         tp, fp, p, r, f1, ap, ap_class = ap_per_class(*stats, plot=plots, save_dir=save_dir, names=names)
         ap50, ap = ap[:, 0], ap.mean(1)  # AP@0.5, AP@0.5:0.95
