@@ -22,7 +22,7 @@ def preprocess_function(img: np.array, bboxes: np.array):
 
     nl = len(labels)  # number of labels
     if nl:
-        labels[:, 0:4] = xyxy2xywhn(labels[:, 0:4], w=img.shape[1], h=img.shape[0], clip=True, eps=1E-3)
+        labels[:, :4] = xyxy2xywhn(labels[:, :4], w=img.shape[1], h=img.shape[0], clip=True, eps=1E-3)
 
     labels_out = torch.zeros((nl, 4))
     if nl:
@@ -35,7 +35,8 @@ def preprocess_function(img: np.array, bboxes: np.array):
     img = np.ascontiguousarray(img, dtype=np.float32)
 
     #return torch.from_numpy(img), labels_out
-    return img, bboxes * ratio[0]
+    #return img, bboxes * ratio[0]
+    return img, labels_out
 
 
 def load_image(im):
