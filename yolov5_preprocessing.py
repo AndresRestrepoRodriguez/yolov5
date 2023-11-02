@@ -5,7 +5,7 @@ import cv2
 import math
 
 
-def preprocess_function_2(img: np.array, bboxes: np.array):
+def preprocess_function(img: np.array, bboxes: np.array):
     # Load image
 
     img, (h0, w0), (h, w) = load_image(img)
