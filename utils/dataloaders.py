@@ -765,7 +765,7 @@ class LoadImagesAndLabels(Dataset):
             else:  # read image
                 #im = cv2.imread(f)  # BGR
                 #LOGGER.info("FROM ELSE IM IS NONE")
-                dcm = pydicom.read_file(i)
+                dcm = pydicom.read_file(f)
                 ndim = len(dcm.pixel_array.shape)
                 if ndim == 2:
                     raw_pixel = dcm.pixel_array
