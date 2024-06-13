@@ -756,11 +756,7 @@ class LoadImagesAndLabels(Dataset):
     def load_image(self, i):
         # Loads 1 image from dataset index 'i', returns (im, original hw, resized hw)
         im, f, fn = self.ims[i], self.im_files[i], self.npy_files[i],
-        #LOGGER.info("LOAD IMAGE FUNCTION ------------")
-        #LOGGER.info(f"im: {im}")
-        #LOGGER.info(f"f: {f}")
-        #LOGGER.info(f"fn: {fn}")
-        
+
         if im is None:  # not cached in RAM
             #LOGGER.info("IM IS NONE")
             if fn.exists():  # load npy
@@ -769,10 +765,29 @@ class LoadImagesAndLabels(Dataset):
             else:  # read image
                 #im = cv2.imread(f)  # BGR
                 #LOGGER.info("FROM ELSE IM IS NONE")
-                ds = pydicom.dcmread(f, force=True)
-                im = ds.pixel_array.astype(np.uint8) #/ 255.0
-                #im = im.astype(np.uint8)
-                im = np.stack([im]*3, -1)
+                dcm = pydicom.read_file(i)
+                ndim = len(dcm.pixel_array.shape)
+                if ndim == 2:
+                    raw_pixel = dcm.pixel_array
+                elif ndim == 3:
+                    raw_pixel = dcm.pixel_array[0]
+                else:
+                    raise ValueError(
+                        f'Dicom image contains {ndim} dimensions, expected 2 or 3 dimensions.'
+                    )
+                
+                img = cv2.convertScaleAbs(raw_pixel,
+                                alpha=(255.0 / dcm.pixel_array.max()))
+                
+                if dcm.PhotometricInterpretation == "MONOCHROME1":
+                    img = cv2.bitwise_not(img)
+                
+                img = cv2.equalizeHist(img)
+                img_out = img
+                img = Image.fromarray(img)
+                img = img.convert('RGB')
+
+                im = np.asarray(img)
                 #LOGGER.info(f"shape im: {im.shape}")
                 assert im is not None, f'Image Not Found {f}'
             h0, w0 = im.shape[:2]  # orig hw
