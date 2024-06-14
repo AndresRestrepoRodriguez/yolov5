@@ -277,7 +277,7 @@ def run(
         ap50, ap = ap[:, 0], ap.mean(1)  # AP@0.5, AP@0.5:0.95
         mp, mr, map50, map = p.mean(), r.mean(), ap50.mean(), ap.mean()
     nt = np.bincount(stats[3].astype(int), minlength=nc)  # number of targets per class
-    fn = nt - tp # False negative
+    fn = 0
 
     # Print results
     pf = '%22s' + '%11i' * 2 + '%11.3g' * 4  # print format
@@ -298,7 +298,7 @@ def run(
 
     # Plots
     if plots:
-        confusion_matrix.plot(save_dir=save_dir, names=list(names.values()))
+        confusion_matrix.plot(save_dir=save_dir, normalize=False, names=list(names.values()))
         custom_confusion_matrix(tp, fp, fn, nc, save_dir=save_dir, names=list(names.values()))
         callbacks.run('on_val_end', nt, tp, fp, p, r, f1, ap, ap50, ap_class, confusion_matrix)
 
