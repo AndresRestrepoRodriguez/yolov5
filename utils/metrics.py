@@ -28,6 +28,48 @@ def smooth(y, f=0.05):
     return np.convolve(yp, np.ones(nf) / nf, mode='valid')  # y-smoothed
 
 
+@TryExcept('WARNING ⚠️ ConfusionMatrix plot failure')
+def custom_confusion_matrix(tp, fp, fn, nc, save_dir='', names=()):
+    import seaborn as sn
+    len_row = nc + 1
+    matrix = np.zeros((nc + 1, nc + 1))
+    if len(tp) < len_row:
+      tp = np.append(tp, 0)
+    if len(fp) < len_row:
+      fp = np.append(fp, 0)
+    if len(fn) < len_row:
+      fn = np.append(fn, 0)
+    
+    np.fill_diagonal(matrix, tp)
+    matrix[-1, ...] = fn
+    matrix[..., -1] = fp
+
+
+    fig, ax = plt.subplots(1, 1, figsize=(12, 9), tight_layout=True)
+    nn = len(names)  # number of classes, names
+    sn.set(font_scale=1.0 if nc < 50 else 0.8)  # for label size
+    labels = (0 < nn < 99) and (nn == nc)  # apply names to ticklabels
+    ticklabels = (names + ['background']) if labels else 'auto'
+    with warnings.catch_warnings():
+        warnings.simplefilter('ignore')  # suppress empty matrix RuntimeWarning: All-NaN slice encountered
+        sn.heatmap(matrix,
+                    ax=ax,
+                    annot=nc < 30,
+                    annot_kws={
+                        'size': 8},
+                    cmap='Blues',
+                    fmt='.2f',
+                    square=True,
+                    vmin=0.0,
+                    xticklabels=ticklabels,
+                    yticklabels=ticklabels).set_facecolor((1, 1, 1))
+    ax.set_xlabel('True')
+    ax.set_ylabel('Predicted')
+    ax.set_title('Confusion Matrix')
+    fig.savefig(Path(save_dir) / 'custom_confusion_matrix.png', dpi=250)
+    plt.close(fig)
+
+
 def ap_per_class(tp, conf, pred_cls, target_cls, plot=False, save_dir='.', names=(), eps=1e-16, prefix=''):
     """ Compute the average precision, given the recall and precision curves.
     Source: https://github.com/rafaelpadilla/Object-Detection-Metrics.
